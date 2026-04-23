@@ -6,7 +6,7 @@ LuaManagement.__index = LuaManagement
 
 -- Configuration
 LuaManagement.Config = {
-    API_URL = "http://localhost:8000", -- Change to your hosted URL
+    API_URL = "http://212.132.99.151:9611", -- Change to your hosted URL
     Service = "default", -- Your service identifier
     RecheckInterval = 300, -- Recheck key every 5 minutes
     MaxRetries = 3,
