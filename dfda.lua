@@ -1,25 +1,20 @@
--- LuaManagementSDK.lua
--- Drop this into your Roblox script to handle key validation
-
+-- dfda.lua - LuaManagement SDK
 local LuaManagement = {}
 LuaManagement.__index = LuaManagement
 
--- Configuration
 LuaManagement.Config = {
-    API_URL = "http://212.132.99.151:9611", -- Change to your hosted URL
-    Service = "default", -- Your service identifier
-    RecheckInterval = 300, -- Recheck key every 5 minutes
+    API_URL = "http://212.132.99.151:9611",
+    Service = "default",
+    RecheckInterval = 300,
     MaxRetries = 3,
     Timeout = 10
 }
 
--- Storage
 LuaManagement.Storage = {
     FileName = "lua_mgmt_key.txt",
     FolderName = "LuaManagement"
 }
 
--- State
 LuaManagement.State = {
     IsValid = false,
     CurrentKey = nil,
@@ -27,12 +22,10 @@ LuaManagement.State = {
     LastCheck = 0
 }
 
--- Utility: File system check
 local function hasFileSystem()
     return pcall(function() return type(writefile) == "function" end)
 end
 
--- Save key locally
 function LuaManagement:SaveKey(key)
     if not hasFileSystem() then return false end
     local success = pcall(function()
@@ -44,76 +37,45 @@ function LuaManagement:SaveKey(key)
     return success
 end
 
--- Load saved key
 function LuaManagement:LoadKey()
     if not hasFileSystem() then return nil end
     local success, content = pcall(function()
         local path = self.Storage.FolderName .. "/" .. self.Storage.FileName
-        if isfile(path) then
-            return readfile(path)
-        end
+        if isfile(path) then return readfile(path) end
         return nil
     end)
     return success and content or nil
 end
 
--- Clear saved key
 function LuaManagement:ClearKey()
     if not hasFileSystem() then return false end
     return pcall(function()
         local path = self.Storage.FolderName .. "/" .. self.Storage.FileName
-        if isfile(path) then
-            delfile(path)
-        end
+        if isfile(path) then delfile(path) end
     end)
 end
 
--- Get HWID (platform-specific)
 function LuaManagement:GetHWID()
+    local HttpService = game:GetService("HttpService")
     local hwid = nil
     
-    -- Try gethwid (common in executors)
-    pcall(function()
-        if gethwid then
-            hwid = gethwid()
-        end
-    end)
-    
-    -- Try getgenv().HWID
+    pcall(function() if gethwid then hwid = gethwid() end end)
     if not hwid then
-        pcall(function()
-            if getgenv().HWID then
-                hwid = getgenv().HWID
-            end
-        end)
+        pcall(function() if getgenv().HWID then hwid = getgenv().HWID end end)
     end
-    
-    -- Try game.RobloxHWID
     if not hwid then
-        pcall(function()
-            if game.RobloxHWID then
-                hwid = tostring(game.RobloxHWID)
-            end
-        end)
-    end
-    
-    -- Fallback: Generate from UserId
-    if not hwid then
-        local HttpService = game:GetService("HttpService")
-        local Players = game:GetService("Players")
-        local player = Players.LocalPlayer
+        local player = game:GetService("Players").LocalPlayer
         if player then
-            local guid = HttpService:GenerateGUID(false)
-            hwid = tostring(player.UserId) .. "-" .. guid:sub(1, 16)
-        else
-            hwid = "UNKNOWN-" .. HttpService:GenerateGUID(false):sub(1, 8)
+            hwid = tostring(player.UserId) .. "-" .. HttpService:GenerateGUID(false):sub(1, 16)
         end
+    end
+    if not hwid then
+        hwid = "UNKNOWN-" .. HttpService:GenerateGUID(false):sub(1, 8)
     end
     
     return hwid
 end
 
--- Make HTTP request
 function LuaManagement:Request(endpoint, data)
     local HttpService = game:GetService("HttpService")
     local success, result = pcall(function()
@@ -122,28 +84,21 @@ function LuaManagement:Request(endpoint, data)
             HttpService:JSONEncode(data),
             Enum.HttpContentType.ApplicationJson,
             false,
-            {
-                ["Content-Type"] = "application/json"
-            }
+            {["Content-Type"] = "application/json"}
         )
         return HttpService:JSONDecode(response)
     end)
     
-    if success then
-        return result
-    else
-        return {valid = false, error = "NETWORK_ERROR", message = "Failed to connect to server"}
-    end
+    if success then return result
+    else return {valid = false, error = "NETWORK_ERROR", message = "Failed to connect"} end
 end
 
--- Validate a key with the server
 function LuaManagement:ValidateKey(key)
     if not key or key == "" then
         return {valid = false, error = "KEY_EMPTY", message = "No key provided"}
     end
     
     local hwid = self:GetHWID()
-    
     local response = self:Request("/api/sdk/validate", {
         key = key,
         hwid = hwid,
@@ -161,13 +116,11 @@ function LuaManagement:ValidateKey(key)
     return response
 end
 
--- Check if current key is still valid
 function LuaManagement:CheckStatus()
     if not self.State.CurrentKey then
         return {valid = false, error = "NO_KEY", message = "No key loaded"}
     end
     
-    -- If checked recently, return cached
     if os.time() - self.State.LastCheck < self.Config.RecheckInterval then
         return {valid = self.State.IsValid, cached = true}
     end
@@ -189,25 +142,17 @@ function LuaManagement:CheckStatus()
     return response
 end
 
--- Initialize and auto-load saved key
 function LuaManagement:Initialize(callback)
     local savedKey = self:LoadKey()
-    
     if savedKey then
         local response = self:ValidateKey(savedKey)
-        if callback then
-            callback(response.valid, response)
-        end
+        if callback then callback(response.valid, response) end
         return response.valid
     end
-    
-    if callback then
-        callback(false, {valid = false, error = "NO_KEY", message = "No saved key"})
-    end
+    if callback then callback(false, {valid = false, error = "NO_KEY"}) end
     return false
 end
 
--- Launch with UI prompt (if no valid key)
 function LuaManagement:Launch(config)
     if config then
         for k, v in pairs(config) do
@@ -217,7 +162,6 @@ function LuaManagement:Launch(config)
         end
     end
     
-    -- Check for existing valid key
     local savedKey = self:LoadKey()
     if savedKey then
         local response = self:ValidateKey(savedKey)
@@ -226,17 +170,14 @@ function LuaManagement:Launch(config)
         end
     end
     
-    -- No valid key - show prompt
     return self:PromptForKey()
 end
 
--- Show key input prompt
 function LuaManagement:PromptForKey()
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
     local playerGui = player:WaitForChild("PlayerGui")
     
-    -- Create simple GUI
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "LuaManagementPrompt"
     screenGui.ResetOnSpawn = false
@@ -249,9 +190,7 @@ function LuaManagement:PromptForKey()
     frame.BorderSizePixel = 0
     frame.Parent = screenGui
     
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = frame
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
     
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 40)
@@ -273,9 +212,7 @@ function LuaManagement:PromptForKey()
     textBox.Font = Enum.Font.Code
     textBox.Parent = frame
     
-    local textCorner = Instance.new("UICorner")
-    textCorner.CornerRadius = UDim.new(0, 6)
-    textCorner.Parent = textBox
+    Instance.new("UICorner", textBox).CornerRadius = UDim.new(0, 6)
     
     local submitBtn = Instance.new("TextButton")
     submitBtn.Size = UDim2.new(0, 120, 0, 36)
@@ -287,9 +224,7 @@ function LuaManagement:PromptForKey()
     submitBtn.Font = Enum.Font.GothamBold
     submitBtn.Parent = frame
     
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 6)
-    btnCorner.Parent = submitBtn
+    Instance.new("UICorner", submitBtn).CornerRadius = UDim.new(0, 6)
     
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Size = UDim2.new(1, 0, 0, 20)
@@ -301,7 +236,7 @@ function LuaManagement:PromptForKey()
     statusLabel.Font = Enum.Font.Gotham
     statusLabel.Parent = frame
     
-    local result = nil
+    local result = false
     local completed = false
     
     submitBtn.MouseButton1Click:Connect(function()
@@ -326,41 +261,29 @@ function LuaManagement:PromptForKey()
         else
             statusLabel.Text = "Error: " .. (response.message or "Invalid key")
             statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            result = false
         end
     end)
     
-    -- Wait for result
     repeat task.wait() until completed or not screenGui.Parent
-    
-    if screenGui.Parent then
-        screenGui:Destroy()
-    end
-    
-    return result or false
+    if screenGui.Parent then screenGui:Destroy() end
+    return result
 end
 
--- Monitor key validity in background
 function LuaManagement:StartMonitor(callback, interval)
     interval = interval or self.Config.RecheckInterval
-    
     task.spawn(function()
         while self.State.IsValid do
             task.wait(interval)
             local response = self:CheckStatus()
-            
             if not response.valid then
                 self.State.IsValid = false
-                if callback then
-                    callback(false, response)
-                end
+                if callback then callback(false, response) end
                 break
             end
         end
     end)
 end
 
--- Get current key info
 function LuaManagement:GetInfo()
     return {
         valid = self.State.IsValid,
